@@ -12,23 +12,7 @@
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
   const firebaseConfig = {
-    apiKey: "// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyAq5YZo1Ax529bgf1BKrThmp7Wy55vD9jw",
-  authDomain: "bb6-vistoria.firebaseapp.com",
-  projectId: "bb6-vistoria",
-  storageBucket: "bb6-vistoria.firebasestorage.app",
-  messagingSenderId: "244773259964",
-  appId: "1:244773259964:web:83571ed02ef5ddc1079eb9"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);",
+    apiKey: "AIzaSyDemo_Replace_With_Real_Key",
     authDomain: "bbm6-vistoria.firebaseapp.com",
     projectId: "bbm6-vistoria",
   };
@@ -738,19 +722,50 @@ const app = initializeApp(firebaseConfig);",
       </div>
     </div>
 
+    <!-- PRAZO DE CUMPRIMENTO -->
+    <div class="card">
+      <div class="card-header"><span class="card-icon">📅</span><h3>Prazo de Cumprimento das Exigências</h3></div>
+      <div class="card-body">
+        <div class="alert alert-warning" style="margin-bottom:10px">
+          ⚠️ Selecione o prazo antes de enviar. Ele constará no PDF e na notificação ao vistoriado.
+        </div>
+        <div class="field-group">
+          <label class="field-label">Prazo para Cumprimento</label>
+          <select class="field-input" id="prazoFinal" onchange="calcDataLimite()">
+            <option value="sem_prazo">— SEM PRAZO DEFINIDO —</option>
+            <option value="7">7 dias</option>
+            <option value="10">10 dias</option>
+            <option value="15">15 dias</option>
+            <option value="20">20 dias</option>
+            <option value="30" selected>30 dias (máximo legal)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Data Limite</label>
+          <input class="field-input" id="dataLimite" type="text" readonly placeholder="Calculada automaticamente" style="color:var(--gold);font-weight:600">
+        </div>
+      </div>
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="goPage(4)">◀ Voltar</button>
-      <button class="btn btn-gold" onclick="gerarPDF()">
+      <button class="btn btn-gold" id="btnGerarPDF" onclick="gerarPDFeAnexar()">
         📄 GERAR PDF
       </button>
     </div>
 
-    <button class="btn btn-green" style="margin-top:8px" onclick="enviarEmail()">
-      📧 ENVIAR NOTIFICAÇÃO POR E-MAIL
-    </button>
+    <div id="pdfStatus" style="margin-top:8px"></div>
+
+    <div style="margin-top:10px;display:grid;gap:8px">
+      <button class="btn btn-green" id="btnEmailPrazo" onclick="enviarEmailComPrazo()">
+        📧 ENVIAR COM PRAZO + PDF ANEXO
+      </button>
+      <button class="btn btn-secondary" style="border:1px solid var(--text-muted)" id="btnEmailSemPrazo" onclick="enviarEmailSemPrazo()">
+        📧 ENVIAR SEM PRAZO DEFINIDO
+      </button>
+    </div>
 
     <div id="emailStatus" style="margin-top:8px"></div>
-    <div id="pdfStatus" style="margin-top:8px"></div>
   </div>
 
 </div><!-- /container -->
@@ -839,6 +854,8 @@ window.onload = () => {
   const agora = new Date().toTimeString().slice(0,5);
   document.getElementById('horaVistoria').value = agora;
   renderVistoriaItems();
+  // Inicializa data limite com prazo padrão (30 dias)
+  setTimeout(calcDataLimite, 100);
 };
 
 // ── PAGE NAVIGATION ──
@@ -1022,265 +1039,224 @@ function syncResumo() {
   `;
 }
 
-// ── GENERATE PDF ──
-async function gerarPDF() {
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '⏳ Gerando PDF...';
+// ── CALCULAR DATA LIMITE ──
+function calcDataLimite() {
+  const prazo = document.getElementById('prazoFinal').value;
+  const el = document.getElementById('dataLimite');
+  if (prazo === 'sem_prazo') { el.value = 'Sem prazo definido'; return; }
+  const dataBase = v('dataVistoria') || new Date().toISOString().split('T')[0];
+  const d = new Date(dataBase + 'T12:00:00');
+  d.setDate(d.getDate() + parseInt(prazo));
+  el.value = d.toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+}
 
+// PDF armazenado globalmente para reutilizar no e-mail
+let _pdfBase64 = null;
+let _pdfNome = '';
+
+// ── GERAR PDF E ARMAZENAR BASE64 ──
+async function gerarPDFeAnexar() {
+  const btn = document.getElementById('btnGerarPDF');
+  btn.disabled = true; btn.textContent = '⏳ Gerando PDF...';
   document.getElementById('pdfStatus').innerHTML = '<div class="loading"><div class="spinner"></div>Gerando relatório de vistoria...</div>';
 
   try {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-    const RED = [192, 57, 43];
-    const DARK = [26, 26, 46];
-    const GOLD = [212, 172, 13];
-    const GRAY = [80, 80, 100];
-    const WHITE = [255, 255, 255];
-    const LIGHT = [240, 242, 245];
-
-    const pw = doc.internal.pageSize.getWidth();
-    const ph = doc.internal.pageSize.getHeight();
-    let y = 0;
-
-    // Header
-    doc.setFillColor(...DARK);
-    doc.rect(0, 0, pw, 38, 'F');
-    doc.setFillColor(...RED);
-    doc.rect(0, 35, pw, 3, 'F');
-
-    doc.setTextColor(...GOLD);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.text('6° BATALHÃO DE BOMBEIROS MILITAR', pw/2, 12, { align: 'center' });
-
-    doc.setTextColor(...WHITE);
-    doc.setFontSize(11);
-    doc.text('CORPO DE BOMBEIROS MILITAR DO MARANHÃO – CBMMA', pw/2, 20, { align: 'center' });
-    doc.setFontSize(9);
-    doc.setTextColor(180, 200, 220);
-    doc.text('AUTO DE VISTORIA TÉCNICA DE SEGURANÇA CONTRA INCÊNDIO', pw/2, 28, { align: 'center' });
-
-    y = 44;
-
-    const bloco = (titulo, campos) => {
-      if (y > ph - 50) { doc.addPage(); y = 15; }
-      doc.setFillColor(...RED);
-      doc.roundedRect(10, y, pw-20, 7, 1, 1, 'F');
-      doc.setTextColor(...WHITE);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.text(titulo.toUpperCase(), 14, y + 4.5);
-      y += 9;
-
-      campos.forEach(([label, valor]) => {
-        if (y > ph - 20) { doc.addPage(); y = 15; }
-        doc.setFillColor(...LIGHT);
-        doc.rect(10, y, pw-20, 6, 'F');
-        doc.setTextColor(...GRAY);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.text(label + ':', 13, y + 4);
-        doc.setTextColor(30, 30, 50);
-        doc.setFont('helvetica', 'bold');
-        doc.text(String(valor || '—'), 55, y + 4);
-        y += 7;
-      });
-      y += 3;
-    };
-
-    bloco('Dados da Edificação', [
-      ['Nome/Razão Social', v('nomeEdif')],
-      ['CNPJ/CPF', v('cnpj')],
-      ['Tipo de Ocupação', v('tipoOcupacao')],
-      ['Endereço', v('endereco')],
-      ['Município/UF', v('municipio') + ' / ' + v('uf')],
-      ['Área Total', v('areaTotal') ? v('areaTotal') + ' m²' : ''],
-      ['Nº de Pavimentos', v('numPav')],
-      ['Nº Processo CBMMA', v('numProcesso')],
-    ]);
-
-    bloco('Responsável pela Edificação', [
-      ['Nome Completo', v('nomeResp')],
-      ['CPF', v('cpfResp')],
-      ['RG', v('rgResp')],
-      ['Telefone', v('telResp')],
-      ['E-mail', v('emailVistoriado')],
-    ]);
-
-    bloco('Dados da Vistoria', [
-      ['Data', v('dataVistoria')],
-      ['Hora', v('horaVistoria')],
-      ['Tipo de Vistoria', v('tipoVistoria')],
-    ]);
-
-    // Itens de vistoria
-    if (y > ph - 60) { doc.addPage(); y = 15; }
-    doc.setFillColor(...RED);
-    doc.roundedRect(10, y, pw-20, 7, 1, 1, 'F');
-    doc.setTextColor(...WHITE);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.text('ITENS VISTORIADOS', 14, y + 4.5);
-    y += 9;
-
-    vistoriaItems.forEach(item => {
-      if (y > ph - 15) { doc.addPage(); y = 15; }
-      const st = itemStates[item.id];
-      if (!st) return;
-      const cor = st === 'ok' ? [39,174,96] : st === 'nc' ? [192,57,43] : [120,120,140];
-      const label = st === 'ok' ? 'CONF.' : st === 'nc' ? 'N/CONF' : 'N/A';
-
-      doc.setFillColor(st === 'ok' ? 235 : st === 'nc' ? 252 : 248, st === 'ok' ? 248 : st === 'nc' ? 235 : 248, st === 'ok' ? 240 : st === 'nc' ? 235 : 248);
-      doc.rect(10, y, pw-20, 6, 'F');
-      doc.setTextColor(...cor);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.text(label, 13, y + 4);
-      doc.text(item.nt, 30, y + 4);
-      doc.setTextColor(40, 40, 60);
-      doc.setFont('helvetica', 'normal');
-      const splitTitle = doc.splitTextToSize(item.titulo, pw - 70);
-      doc.text(splitTitle[0], 52, y + 4);
-      y += 7;
-    });
-    y += 3;
-
-    // Multa
-    if (document.getElementById('aplicarMulta').checked) {
-      const vbbm = parseFloat(document.getElementById('vbbm').value) || 300;
-      const ncItems = vistoriaItems.filter(item => itemStates[item.id] === 'nc');
-      if (ncItems.length > 0) {
-        if (y > ph - 50) { doc.addPage(); y = 15; }
-        doc.setFillColor(...RED);
-        doc.roundedRect(10, y, pw-20, 7, 1, 1, 'F');
-        doc.setTextColor(...WHITE);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.text('PENALIDADES / AUTO DE INFRAÇÃO', 14, y + 4.5);
-        y += 9;
-
-        let total = 0;
-        ncItems.forEach(item => {
-          if (y > ph - 15) { doc.addPage(); y = 15; }
-          const valor = item.multa * vbbm;
-          total += valor;
-          doc.setFillColor(252, 235, 235);
-          doc.rect(10, y, pw-20, 6, 'F');
-          doc.setTextColor(...RED);
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7);
-          doc.text('R$ ' + valor.toFixed(2), pw - 30, y + 4);
-          doc.setTextColor(60, 30, 30);
-          doc.setFont('helvetica', 'normal');
-          const t = doc.splitTextToSize(item.titulo + ' (' + item.nt + ')', pw - 60);
-          doc.text(t[0], 13, y + 4);
-          y += 7;
-        });
-
-        if (y > ph - 20) { doc.addPage(); y = 15; }
-        doc.setFillColor(...DARK);
-        doc.rect(10, y, pw-20, 8, 'F');
-        doc.setTextColor(...GOLD);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.text('TOTAL: R$ ' + total.toFixed(2), pw - 14, y + 5.5, { align: 'right' });
-        doc.setTextColor(...WHITE);
-        doc.text('TOTAL ESTIMADO', 14, y + 5.5);
-        y += 11;
-
-        const prazo = v('prazoReg');
-        const numAuto = v('numAuto');
-        doc.setTextColor(...GRAY);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        if (numAuto) doc.text('Nº Auto de Infração: ' + numAuto, 13, y); y += 5;
-        if (prazo) doc.text('Prazo para regularização: ' + prazo + ' dias', 13, y); y += 5;
-        y += 2;
-      }
-    }
-
-    // Resultado e observações
-    bloco('Resultado e Observações', [
-      ['Resultado da Vistoria', v('resultadoGeral')],
-      ['Observações', v('observacoes') || 'Sem observações adicionais'],
-    ]);
-
-    bloco('Identificação do Vistoriador', [
-      ['Posto/Graduação', v('postoVistr')],
-      ['Nome', v('nomeVistr')],
-      ['Matrícula', v('matriculaVistr')],
-      ['Unidade', v('secaoVistr')],
-    ]);
-
-    // Assinaturas
-    if (y > ph - 50) { doc.addPage(); y = 15; }
-    y += 5;
-    doc.setTextColor(...GRAY);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-
-    const sigY = y;
-    doc.line(15, sigY+15, 85, sigY+15);
-    doc.text('Assinatura do Vistoriador', 50, sigY+20, { align: 'center' });
-    doc.text(v('postoVistr') + ' ' + v('nomeVistr'), 50, sigY+25, { align: 'center' });
-    doc.text('6° BBM / CBMMA', 50, sigY+30, { align: 'center' });
-
-    doc.line(pw-85, sigY+15, pw-15, sigY+15);
-    doc.text('Assinatura do Responsável', pw-50, sigY+20, { align: 'center' });
-    doc.text(v('nomeResp'), pw-50, sigY+25, { align: 'center' });
-    doc.text('CPF: ' + v('cpfResp'), pw-50, sigY+30, { align: 'center' });
-
-    // Footer
-    const footY = ph - 12;
-    doc.setFillColor(...DARK);
-    doc.rect(0, footY - 3, pw, 15, 'F');
-    doc.setTextColor(...GOLD);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.text('6° BATALHÃO DE BOMBEIROS MILITAR · CBMMA/MA', pw/2, footY + 2, { align: 'center' });
-    doc.setTextColor(160,180,200);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Documento gerado em ${new Date().toLocaleString('pt-BR')} · Uso oficial`, pw/2, footY + 6, { align: 'center' });
-
+    const pdfDoc = await buildPDF();
     const nomeEdif = v('nomeEdif') || 'vistoria';
     const dataV = v('dataVistoria') || new Date().toISOString().split('T')[0];
-    doc.save(`Vistoria_6BBM_${nomeEdif.replace(/\s+/g,'_')}_${dataV}.pdf`);
+    _pdfNome = `Vistoria_6BBM_${nomeEdif.replace(/\s+/g,'_')}_${dataV}.pdf`;
+    _pdfBase64 = pdfDoc.output('datauristring'); // base64 data URI
 
-    document.getElementById('pdfStatus').innerHTML = '<div class="alert alert-success">✅ PDF gerado e baixado com sucesso!</div>';
+    // Também faz download
+    pdfDoc.save(_pdfNome);
+
+    document.getElementById('pdfStatus').innerHTML = `
+      <div class="alert alert-success">
+        ✅ PDF gerado e baixado! Agora clique em "Enviar" para abrir o e-mail com o PDF pronto para anexar.
+      </div>`;
   } catch (err) {
-    document.getElementById('pdfStatus').innerHTML = '<div class="alert alert-warning">⚠️ Erro ao gerar PDF: ' + err.message + '</div>';
+    document.getElementById('pdfStatus').innerHTML = `<div class="alert alert-warning">⚠️ Erro: ${err.message}</div>`;
   }
-
-  btn.disabled = false;
-  btn.textContent = '📄 GERAR PDF';
+  btn.disabled = false; btn.textContent = '📄 GERAR PDF';
 }
 
-// ── ENVIAR EMAIL (via mailto / EmailJS / Firebase) ──
-async function enviarEmail() {
-  const email = document.getElementById('emailVistoriado2').value || document.getElementById('emailVistoriado').value;
-  if (!email) {
-    document.getElementById('emailStatus').innerHTML = '<div class="alert alert-warning">⚠️ Informe o e-mail do vistoriado.</div>';
-    return;
+// ── CONSTRUIR PDF (função compartilhada) ──
+async function buildPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const RED=[192,57,43], DARK=[26,26,46], GOLD=[212,172,13], GRAY=[80,80,100], WHITE=[255,255,255], LIGHT=[240,242,245];
+  const pw = doc.internal.pageSize.getWidth();
+  const ph = doc.internal.pageSize.getHeight();
+  let y = 0;
+
+  // Prazo
+  const prazoVal = document.getElementById('prazoFinal') ? document.getElementById('prazoFinal').value : 'sem_prazo';
+  const prazoTexto = prazoVal === 'sem_prazo' ? 'Sem prazo definido' : prazoVal + ' dias';
+  const dataLimiteTexto = document.getElementById('dataLimite') ? document.getElementById('dataLimite').value : '';
+
+  // Header
+  doc.setFillColor(...DARK); doc.rect(0,0,pw,38,'F');
+  doc.setFillColor(...RED);  doc.rect(0,35,pw,3,'F');
+  doc.setTextColor(...GOLD); doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('6° BATALHÃO DE BOMBEIROS MILITAR', pw/2, 12, {align:'center'});
+  doc.setTextColor(...WHITE); doc.setFontSize(11);
+  doc.text('CORPO DE BOMBEIROS MILITAR DO MARANHÃO – CBMMA', pw/2, 20, {align:'center'});
+  doc.setFontSize(9); doc.setTextColor(180,200,220);
+  doc.text('AUTO DE VISTORIA TÉCNICA DE SEGURANÇA CONTRA INCÊNDIO', pw/2, 28, {align:'center'});
+  y = 44;
+
+  const bloco = (titulo, campos) => {
+    if (y > ph-50) { doc.addPage(); y=15; }
+    doc.setFillColor(...RED); doc.roundedRect(10,y,pw-20,7,1,1,'F');
+    doc.setTextColor(...WHITE); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.text(titulo.toUpperCase(), 14, y+4.5); y += 9;
+    campos.forEach(([label,valor]) => {
+      if (y > ph-20) { doc.addPage(); y=15; }
+      doc.setFillColor(...LIGHT); doc.rect(10,y,pw-20,6,'F');
+      doc.setTextColor(...GRAY); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      doc.text(label+':', 13, y+4);
+      doc.setTextColor(30,30,50); doc.setFont('helvetica','bold');
+      doc.text(String(valor||'—'), 55, y+4); y += 7;
+    }); y += 3;
+  };
+
+  bloco('Dados da Edificação', [
+    ['Nome/Razão Social', v('nomeEdif')], ['CNPJ/CPF', v('cnpj')],
+    ['Tipo de Ocupação', v('tipoOcupacao')], ['Endereço', v('endereco')],
+    ['Município/UF', v('municipio')+' / '+v('uf')],
+    ['Área Total', v('areaTotal') ? v('areaTotal')+' m²' : ''],
+    ['Nº de Pavimentos', v('numPav')], ['Nº Processo CBMMA', v('numProcesso')],
+  ]);
+
+  bloco('Responsável pela Edificação', [
+    ['Nome Completo', v('nomeResp')], ['CPF', v('cpfResp')],
+    ['RG', v('rgResp')], ['Telefone', v('telResp')], ['E-mail', v('emailVistoriado')],
+  ]);
+
+  bloco('Dados da Vistoria', [
+    ['Data', v('dataVistoria')], ['Hora', v('horaVistoria')],
+    ['Tipo de Vistoria', v('tipoVistoria')],
+  ]);
+
+  // Prazo de cumprimento – destaque
+  if (y > ph-30) { doc.addPage(); y=15; }
+  const prazoColor = prazoVal === 'sem_prazo' ? [120,120,140] : [192,57,43];
+  doc.setFillColor(...prazoColor); doc.roundedRect(10,y,pw-20,14,2,2,'F');
+  doc.setTextColor(...WHITE); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('PRAZO PARA CUMPRIMENTO DAS EXIGÊNCIAS: '+prazoTexto.toUpperCase(), 14, y+5.5);
+  if (dataLimiteTexto && prazoVal !== 'sem_prazo') {
+    doc.setFontSize(7.5); doc.setFont('helvetica','normal');
+    doc.text('Data limite: '+dataLimiteTexto, 14, y+11);
+  }
+  y += 18;
+
+  // Itens
+  if (y > ph-60) { doc.addPage(); y=15; }
+  doc.setFillColor(...RED); doc.roundedRect(10,y,pw-20,7,1,1,'F');
+  doc.setTextColor(...WHITE); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+  doc.text('ITENS VISTORIADOS', 14, y+4.5); y += 9;
+
+  vistoriaItems.forEach(item => {
+    if (y > ph-15) { doc.addPage(); y=15; }
+    const st = itemStates[item.id]; if (!st) return;
+    const cor = st==='ok' ? [39,174,96] : st==='nc' ? [192,57,43] : [120,120,140];
+    const label = st==='ok' ? 'CONF.' : st==='nc' ? 'N/CONF' : 'N/A';
+    doc.setFillColor(st==='ok'?235:st==='nc'?252:248, st==='ok'?248:st==='nc'?235:248, st==='ok'?240:st==='nc'?235:248);
+    doc.rect(10,y,pw-20,6,'F');
+    doc.setTextColor(...cor); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+    doc.text(label,13,y+4); doc.text(item.nt,30,y+4);
+    doc.setTextColor(40,40,60); doc.setFont('helvetica','normal');
+    const splitTitle = doc.splitTextToSize(item.titulo, pw-70);
+    doc.text(splitTitle[0],52,y+4); y += 7;
+  }); y += 3;
+
+  // Multa
+  if (document.getElementById('aplicarMulta').checked) {
+    const vbbm = parseFloat(document.getElementById('vbbm').value)||300;
+    const ncItems = vistoriaItems.filter(item => itemStates[item.id]==='nc');
+    if (ncItems.length > 0) {
+      if (y > ph-50) { doc.addPage(); y=15; }
+      doc.setFillColor(...RED); doc.roundedRect(10,y,pw-20,7,1,1,'F');
+      doc.setTextColor(...WHITE); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+      doc.text('PENALIDADES / AUTO DE INFRAÇÃO', 14, y+4.5); y += 9;
+      let total=0;
+      ncItems.forEach(item => {
+        if (y > ph-15) { doc.addPage(); y=15; }
+        const valor = item.multa*vbbm; total += valor;
+        doc.setFillColor(252,235,235); doc.rect(10,y,pw-20,6,'F');
+        doc.setTextColor(...RED); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+        doc.text('R$ '+valor.toFixed(2), pw-30, y+4);
+        doc.setTextColor(60,30,30); doc.setFont('helvetica','normal');
+        const t = doc.splitTextToSize(item.titulo+' ('+item.nt+')', pw-60);
+        doc.text(t[0],13,y+4); y += 7;
+      });
+      if (y > ph-20) { doc.addPage(); y=15; }
+      doc.setFillColor(...DARK); doc.rect(10,y,pw-20,8,'F');
+      doc.setTextColor(...GOLD); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text('TOTAL: R$ '+total.toFixed(2), pw-14, y+5.5, {align:'right'});
+      doc.setTextColor(...WHITE); doc.text('TOTAL ESTIMADO', 14, y+5.5); y += 11;
+      doc.setTextColor(...GRAY); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      const numAuto = v('numAuto');
+      if (numAuto) { doc.text('Nº Auto de Infração: '+numAuto, 13, y); y += 5; }
+      y += 2;
+    }
   }
 
-  const nomeEdif = v('nomeEdif') || 'Edificação';
-  const data = v('dataVistoria') || new Date().toISOString().split('T')[0];
-  const resultado = v('resultadoGeral') || 'A verificar';
-  const nc = Object.values(itemStates).filter(s => s === 'nc').length;
-  const vistr = v('postoVistr') + ' ' + (v('nomeVistr') || '');
-  const obs = v('observacoes') || 'Sem observações adicionais.';
+  bloco('Resultado e Observações', [
+    ['Resultado da Vistoria', v('resultadoGeral')],
+    ['Observações', v('observacoes')||'Sem observações adicionais'],
+  ]);
+
+  bloco('Identificação do Vistoriador', [
+    ['Posto/Graduação', v('postoVistr')], ['Nome', v('nomeVistr')],
+    ['Matrícula', v('matriculaVistr')], ['Unidade', v('secaoVistr')],
+  ]);
+
+  // Assinaturas
+  if (y > ph-50) { doc.addPage(); y=15; }
+  y += 5;
+  doc.setTextColor(...GRAY); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  const sigY = y;
+  doc.line(15,sigY+15,85,sigY+15);
+  doc.text('Assinatura do Vistoriador',50,sigY+20,{align:'center'});
+  doc.text(v('postoVistr')+' '+v('nomeVistr'),50,sigY+25,{align:'center'});
+  doc.text('6° BBM / CBMMA',50,sigY+30,{align:'center'});
+  doc.line(pw-85,sigY+15,pw-15,sigY+15);
+  doc.text('Assinatura do Responsável',pw-50,sigY+20,{align:'center'});
+  doc.text(v('nomeResp'),pw-50,sigY+25,{align:'center'});
+  doc.text('CPF: '+v('cpfResp'),pw-50,sigY+30,{align:'center'});
+
+  // Footer
+  const footY = ph-12;
+  doc.setFillColor(...DARK); doc.rect(0,footY-3,pw,15,'F');
+  doc.setTextColor(...GOLD); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+  doc.text('6° BATALHÃO DE BOMBEIROS MILITAR · CBMMA/MA', pw/2, footY+2, {align:'center'});
+  doc.setTextColor(160,180,200); doc.setFont('helvetica','normal');
+  doc.text(`Documento gerado em ${new Date().toLocaleString('pt-BR')} · Uso oficial`, pw/2, footY+6, {align:'center'});
+
+  return doc;
+}
+
+// ── MONTAR CORPO DO E-MAIL ──
+function montarCorpoEmail(comPrazo) {
+  const nomeEdif = v('nomeEdif')||'Edificação';
+  const data = v('dataVistoria')||new Date().toISOString().split('T')[0];
+  const resultado = v('resultadoGeral')||'A verificar';
+  const nc = Object.values(itemStates).filter(s=>s==='nc').length;
+  const vistr = v('postoVistr')+' '+(v('nomeVistr')||'');
+  const obs = v('observacoes')||'Sem observações adicionais.';
   const multaOn = document.getElementById('aplicarMulta').checked;
-  const prazo = v('prazoReg') || '30';
+  const prazoVal = document.getElementById('prazoFinal').value;
+  const dataLimite = document.getElementById('dataLimite').value;
 
-  // Gerar corpo do e-mail para mailto
-  const subject = encodeURIComponent(`[6° BBM/CBMMA] Auto de Vistoria – ${nomeEdif} – ${data}`);
-  const body = encodeURIComponent(
-`AUTO DE VISTORIA TÉCNICA - 6° BATALHÃO DE BOMBEIROS MILITAR / CBMMA
+  const linhaPrazo = comPrazo && prazoVal !== 'sem_prazo'
+    ? `PRAZO PARA CUMPRIMENTO: ${prazoVal} dias\nDATA LIMITE: ${dataLimite}`
+    : 'PRAZO: Sem prazo definido nesta notificação';
 
-Prezado(a) ${v('nomeResp') || 'Responsável'},
+  return `AUTO DE VISTORIA TÉCNICA - 6° BATALHÃO DE BOMBEIROS MILITAR / CBMMA
+
+Prezado(a) ${v('nomeResp')||'Responsável'},
 
 Comunicamos que foi realizada vistoria técnica de segurança contra incêndio na edificação abaixo:
 
@@ -1289,31 +1265,89 @@ ENDEREÇO: ${v('endereco')}
 DATA: ${data}
 RESULTADO: ${resultado}
 IRREGULARIDADES ENCONTRADAS: ${nc} item(ns) não conforme(s)
-${multaOn ? `PENALIDADES: Auto de Infração emitido (nº ${v('numAuto') || 's/n'}) – Prazo para regularização: ${prazo} dias` : ''}
+${linhaPrazo}
+${multaOn ? `PENALIDADES: Auto de Infração nº ${v('numAuto')||'s/n'} – conf. Portaria 122/2022/GAB.CMDO/CBMMA` : ''}
 
 OBSERVAÇÕES:
 ${obs}
 
+O Auto de Vistoria completo está em anexo (PDF). Por favor, verifique o documento.
+
 VISTORIADOR: ${vistr}
 UNIDADE: 6° Batalhão de Bombeiros Militar / CBMMA-MA
 
-Em caso de dúvidas, entre em contato com o 6° BBM pelo e-mail 6bbm.doat@gmail.com.
+Dúvidas: 6bbm.doat@gmail.com
 
 Atenciosamente,
 6° Batalhão de Bombeiros Militar
-Corpo de Bombeiros Militar do Maranhão – CBMMA`
-  );
+Corpo de Bombeiros Militar do Maranhão – CBMMA`;
+}
+
+// ── ENVIAR COM PRAZO ──
+async function enviarEmailComPrazo() {
+  await _enviarEmail(true);
+}
+
+// ── ENVIAR SEM PRAZO ──
+async function enviarEmailSemPrazo() {
+  await _enviarEmail(false);
+}
+
+// ── LÓGICA DE ENVIO ──
+async function _enviarEmail(comPrazo) {
+  const email = document.getElementById('emailVistoriado2').value || document.getElementById('emailVistoriado').value;
+  if (!email) {
+    document.getElementById('emailStatus').innerHTML = '<div class="alert alert-warning">⚠️ Informe o e-mail do vistoriado na etapa 1.</div>';
+    return;
+  }
+
+  // Gerar PDF se ainda não foi gerado
+  if (!_pdfBase64) {
+    document.getElementById('emailStatus').innerHTML = '<div class="loading"><div class="spinner"></div>Gerando PDF para anexo...</div>';
+    try {
+      const pdfDoc = await buildPDF();
+      const nomeEdif = v('nomeEdif')||'vistoria';
+      const dataV = v('dataVistoria')||new Date().toISOString().split('T')[0];
+      _pdfNome = `Vistoria_6BBM_${nomeEdif.replace(/\s+/g,'_')}_${dataV}.pdf`;
+      _pdfBase64 = pdfDoc.output('datauristring');
+      // Também baixa
+      pdfDoc.save(_pdfNome);
+    } catch(e) {
+      document.getElementById('emailStatus').innerHTML = `<div class="alert alert-warning">⚠️ Erro ao gerar PDF: ${e.message}</div>`;
+      return;
+    }
+  }
+
+  const nomeEdif = v('nomeEdif')||'Edificação';
+  const data = v('dataVistoria')||new Date().toISOString().split('T')[0];
+  const prazoVal = document.getElementById('prazoFinal').value;
+  const prazoLabel = comPrazo && prazoVal !== 'sem_prazo' ? ` – Prazo: ${prazoVal} dias` : ' – Sem prazo definido';
+
+  const subject = encodeURIComponent(`[6° BBM/CBMMA] Auto de Vistoria – ${nomeEdif} – ${data}${prazoLabel}`);
+  const body = encodeURIComponent(montarCorpoEmail(comPrazo));
 
   const mailtoLink = `mailto:${email}?cc=6bbm.doat@gmail.com&subject=${subject}&body=${body}`;
 
+  // Instruções para anexo manual (limitação do mailto)
   document.getElementById('emailStatus').innerHTML = `
     <div class="alert alert-success">
-      ✅ Cliente de e-mail aberto!<br>
+      ✅ E-mail aberto no cliente de e-mail!<br>
+      <strong style="color:var(--gold)">📎 IMPORTANTE: Anexe manualmente o arquivo PDF baixado ("${_pdfNome}") antes de enviar.</strong><br>
       <small>Destinatário: <strong>${email}</strong> · Cc: 6bbm.doat@gmail.com</small><br>
-      <small style="color:var(--text-muted)">Se não abriu automaticamente, <a href="${mailtoLink}" style="color:var(--gold)">clique aqui</a>.</small>
+      <small style="margin-top:4px;display:block">Se não abriu: <a href="${mailtoLink}" style="color:var(--gold)">clique aqui</a></small>
+    </div>
+    <div style="margin-top:8px;padding:10px;background:var(--surface2);border-radius:8px;border:1px solid var(--gold)">
+      <div style="font-size:11px;color:var(--gold);font-weight:700;margin-bottom:6px;text-transform:uppercase">📥 Download direto do PDF</div>
+      <a href="${_pdfBase64}" download="${_pdfNome}" class="btn btn-gold" style="text-decoration:none;display:flex;align-items:center;gap:8px;justify-content:center;padding:10px">
+        ⬇️ BAIXAR PDF PARA ANEXAR
+      </a>
     </div>`;
+
   window.location.href = mailtoLink;
 }
+
+// ── ENVIAR EMAIL (legado - mantido por compatibilidade) ──
+async function enviarEmail() { await _enviarEmail(true); }
 
 // ── MASKS ──
 function maskCPF(el) {
