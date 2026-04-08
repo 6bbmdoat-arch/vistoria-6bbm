@@ -1128,12 +1128,19 @@ async function buildPDF() {
     doc.setTextColor(...WHITE); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
     doc.text(titulo.toUpperCase(), 14, y+4.5); y += 9;
     campos.forEach(([label,valor]) => {
-      if (y > ph-20) { doc.addPage(); y=15; }
-      doc.setFillColor(...LIGHT); doc.rect(10,y,pw-20,6,'F');
+      // Quebra o texto do valor para caber na largura disponível
+      doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+      const linhas = doc.splitTextToSize(String(valor||'—'), pw-60);
+      const alturaLinha = 4.5;
+      const alturaMinima = 6;
+      const alturaCampo = Math.max(alturaMinima, linhas.length * alturaLinha + 3);
+
+      if (y + alturaCampo > ph-15) { doc.addPage(); y=15; }
+      doc.setFillColor(...LIGHT); doc.rect(10,y,pw-20,alturaCampo,'F');
       doc.setTextColor(...GRAY); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
       doc.text(label+':', 13, y+4);
       doc.setTextColor(30,30,50); doc.setFont('helvetica','bold');
-      doc.text(String(valor||'—'), 55, y+4); y += 7;
+      doc.text(linhas, 55, y+4); y += alturaCampo + 1;
     }); y += 3;
   };
 
