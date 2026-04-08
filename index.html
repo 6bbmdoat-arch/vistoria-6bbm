@@ -1128,9 +1128,11 @@ async function buildPDF() {
     doc.setTextColor(...WHITE); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
     doc.text(titulo.toUpperCase(), 14, y+4.5); y += 9;
     campos.forEach(([label,valor]) => {
-      // Quebra o texto do valor para caber na largura disponível
+      // texto começa em x=55, margem direita em x=pw-10 → largura disponível = pw-10-55
+      const xValor = 55;
+      const larguraValor = pw - xValor - 12; // 12mm de margem direita
       doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
-      const linhas = doc.splitTextToSize(String(valor||'—'), pw-60);
+      const linhas = doc.splitTextToSize(String(valor||'—'), larguraValor);
       const alturaLinha = 4.5;
       const alturaMinima = 6;
       const alturaCampo = Math.max(alturaMinima, linhas.length * alturaLinha + 3);
@@ -1140,7 +1142,7 @@ async function buildPDF() {
       doc.setTextColor(...GRAY); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
       doc.text(label+':', 13, y+4);
       doc.setTextColor(30,30,50); doc.setFont('helvetica','bold');
-      doc.text(linhas, 55, y+4); y += alturaCampo + 1;
+      doc.text(linhas, xValor, y+4); y += alturaCampo + 1;
     }); y += 3;
   };
 
